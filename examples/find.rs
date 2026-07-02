@@ -1,10 +1,12 @@
-//! playscript find — 在目录树中查找 EXE 并按"像窗口应用的程度"排序输出。
+//! playscript find — 在目录树中查找 EXE，按两套分数排序输出。
+//!
+//! 排序规则：主分(降) → 副分(降) → 文件名(升) → 路径(升)
 //!
 //! 深度规则：只有目录中存在文件时才计为一层，纯子目录不算层。
-//! 分类规则：按导入表 + 资源判断是否双击后会弹出窗口。
 //!
-//! 运行: cargo run --example find        # 完整扫描 + 分析
-//!       cargo run --example find -- --recalc   # 仅重算缓存（排序/评分/统计）
+//! 运行:
+//!   cargo run --example find                # 完整扫描 + 分析
+//!   cargo run --example find -- --recalc    # 仅重算缓存（排序/评分/统计）
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -59,30 +61,6 @@ fn classify_likelihood(r: &AnalyzeResult) -> Likelihood {
     Likelihood::Unlikely
 }
 
-// ─── 得分计算 (0-10) ─────────────────────────────────────
-
-fn compute_score(r: &AnalyzeResult) -> f64 {
-    if r.subsystem != Subsystem::Gui { return 0.0; }
-    let mut s: f64 = 2.0;
-    if r.has_icon   { s += 1.0; }
-    if r.has_dialog { s += 1.0; }
-    if r.is_dotnet  { s += 1.5; }
-    let f = &r.window_funcs;
-    if !f.is_empty() {
-        s += 1.0;
-        if f.iter().any(|x| x.contains("RegisterClass"))           { s += 0.5; }
-        if f.iter().any(|x| x.contains("DialogBoxParam") || x.contains("CreateDialogParam")) { s += 1.0; }
-        if f.iter().any(|x| x.contains("CreateWindowEx"))          { s += 1.5; }
-        if f.iter().any(|x| x.contains("MessageBox"))              { s += 0.5; }
-        if f.iter().any(|x| x.contains("CreateWindowEx")) &&
-           f.iter().any(|x| x.contains("RegisterClass"))           { s += 0.5; }
-        if f.len() >= 3                                            { s += 0.5; }
-    }
-    if r.is_stub    { s -= 2.0; }
-    if r.is_service { s -= 1.5; }
-    (s.max(0.0).min(10.0) * 10.0).round() / 10.0
-}
-
 // ─── 目录遍历 ──────────────────────────────────────────────
 
 fn find_exes(dir: &Path, depth: usize, results: &mut Vec<PathBuf>) {
@@ -101,13 +79,15 @@ fn find_exes(dir: &Path, depth: usize, results: &mut Vec<PathBuf>) {
     if next <= MAX_DEPTH { for sd in &subdirs { find_exes(sd, next, results); } }
 }
 
-// ─── 缓存（v2：数组 + 得分） ──────────────────────────────
+// ─── 缓存（v2：数组 + 两套分数） ──────────────────────────
 
+/// 缓存条目，score_main/score_sub 来自 AnalyzeResult。
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct CacheEntry {
     path: String,
     mtime_secs: u64,
-    score: f64,
+    score_main: f64,   // 主分：消息循环强信号
+    score_sub: f64,    // 副分：资源/导入弱信号
     result: AnalyzeResult,
 }
 
@@ -146,13 +126,14 @@ fn build_cache_set(entries: &[CacheEntry]) -> HashSet<String> {
     entries.iter().map(|e| e.path.clone()).collect()
 }
 
+/// 保存缓存并统计各分段的条目数。
 fn save_cache(entries: &[CacheEntry]) {
     let total = entries.len();
-    // 统计分档
+    // 统计主分分档（按主分排序后，分段汇总）
     let mut r0 = 0usize; let mut r5 = 0; let mut r6 = 0;
     let mut r7 = 0; let mut r8 = 0; let mut r9 = 0;
     for e in entries {
-        let s = e.score;
+        let s = e.score_main;
         if      s <= 4.0 { r0 += 1; }
         else if s <= 6.0 { r5 += 1; }
         else if s <= 7.0 { r6 += 1; }
@@ -209,8 +190,8 @@ fn analyze_one(path: &Path, cache_map: &HashSet<String>, entries: &mut Vec<Cache
         Ok(r) => r,
         Err(e) => { eprintln!("\n  分析失败: {path_str} → {e}"); return None; }
     };
-    let score = compute_score(&result);
-    entries.push(CacheEntry { path: abs_str, mtime_secs: mtime, score, result: result.clone() });
+    let (sm, ss) = (result.score_main, result.score_sub);
+    entries.push(CacheEntry { path: abs_str, mtime_secs: mtime, score_main: sm, score_sub: ss, result: result.clone() });
     Some((path_str, result))
 }
 
@@ -221,6 +202,8 @@ fn main() {
     let recalc_only = args.iter().any(|a| a == "--recalc");
 
     if recalc_only {
+        // ── 仅重算缓存模式 ──
+        // 只加载现有缓存 → 用最新的评分/排序/统计逻辑重新处理后保存
         println!("playscript find — 仅重算缓存\n");
         println!("缓存: {}", cache_path().display());
         let mut entries = load_cache_entries();
@@ -230,18 +213,23 @@ fn main() {
         }
         println!("加载: {} 条\n", entries.len());
 
-        // 重算得分
+        // 从 result 中取出最新得分（未来若 compute 逻辑变了，这里可以重算）
         let mut changed = 0;
         for e in &mut entries {
-            let new_score = compute_score(&e.result);
-            if (e.score - new_score).abs() > 0.01 { changed += 1; }
-            e.score = new_score;
+            let new_sm = e.result.score_main;
+            let new_ss = e.result.score_sub;
+            if (e.score_main - new_sm).abs() > 0.01 || (e.score_sub - new_ss).abs() > 0.01 {
+                changed += 1;
+            }
+            e.score_main = new_sm;
+            e.score_sub = new_ss;
         }
         println!("重算得分: {} 条变更", changed);
 
-        // 排序 + 保存
+        // 排序：主分(降) → 副分(降) → 文件名(升) → 路径(升)
         entries.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.score_main.partial_cmp(&a.score_main).unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.score_sub.partial_cmp(&a.score_sub).unwrap_or(std::cmp::Ordering::Equal))
                 .then_with(|| {
                     let fa = Path::new(&a.path).file_name().map(|s| s.to_ascii_lowercase());
                     let fb = Path::new(&b.path).file_name().map(|s| s.to_ascii_lowercase());
@@ -253,6 +241,7 @@ fn main() {
         return;
     }
 
+    // ── 完整扫描 + 分析模式 ──
     println!("playscript find — 按窗口相似度排序\n");
     println!("根目录: {ROOT_DIR}");
     println!("最大层级(有文件的层): {MAX_DEPTH}");
@@ -273,7 +262,6 @@ fn main() {
     let cache_entries = Mutex::new(if USE_CACHE { load_cache_entries() } else { Vec::new() });
     let cache_set = Mutex::new(HashSet::new());
 
-    // 预先构建 path set
     {
         let entries = cache_entries.lock().unwrap();
         *cache_set.lock().unwrap() = build_cache_set(&entries);
@@ -294,7 +282,7 @@ fn main() {
             s.spawn(move || {
                 for path in &chunk {
                     if let Some((p, r)) = analyze_one(path, &cache_set.lock().unwrap(), &mut cache_entries.lock().unwrap()) {
-                        results.lock().unwrap().push((p, r, 0.0)); // score filled below
+                        results.lock().unwrap().push((p, r));
                     }
                     let mut pg = progress.lock().unwrap();
                     *pg += 1;
@@ -305,31 +293,34 @@ fn main() {
     });
     println!("\n");
 
-    // 从缓存拿回 score
+    // 从缓存拿回得分
     let final_entries = cache_entries.into_inner().unwrap();
 
-    // 3. 排序：得分(降) → 文件名(升) → 路径(升)
-    let mut sorted: Vec<(String, AnalyzeResult, f64)> = results.into_inner().unwrap();
-    for (p, _, sc) in &mut sorted {
+    // 3. 排序：主分(降) → 副分(降) → 文件名(升) → 路径(升)
+    let mut sorted: Vec<(String, AnalyzeResult)> = results.into_inner().unwrap();
+    // 从缓存拿回 score_main / score_sub
+    for (p, r) in &mut sorted {
         if let Ok(abs) = fs::canonicalize(p) {
             let a = abs.to_string_lossy().to_string();
             if let Some(e) = final_entries.iter().find(|e| e.path == a) {
-                *sc = e.score;
+                r.score_main = e.score_main;
+                r.score_sub = e.score_sub;
             }
         }
     }
-    sorted.sort_by(|(a_p, _, a_s), (b_p, _, b_s)| {
-        b_s.partial_cmp(a_s).unwrap_or(std::cmp::Ordering::Equal)  // score desc
+    sorted.sort_by(|(a_p, a_r), (b_p, b_r)| {
+        b_r.score_main.partial_cmp(&a_r.score_main).unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b_r.score_sub.partial_cmp(&a_r.score_sub).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| {
                 let fa = Path::new(a_p).file_name().map(|s| s.to_ascii_lowercase());
                 let fb = Path::new(b_p).file_name().map(|s| s.to_ascii_lowercase());
                 fa.cmp(&fb)
-            })  // filename asc
-            .then_with(|| a_p.cmp(b_p))  // path asc
+            })
+            .then_with(|| a_p.cmp(b_p))
     });
 
     // 4. 分组输出
-    let mut groups: BTreeMap<Likelihood, Vec<&(String, AnalyzeResult, f64)>> = BTreeMap::new();
+    let mut groups: BTreeMap<Likelihood, Vec<&(String, AnalyzeResult)>> = BTreeMap::new();
     for item in &sorted {
         let l = classify_likelihood(&item.1);
         groups.entry(l).or_default().push(item);
@@ -339,9 +330,10 @@ fn main() {
         println!("────────────────────────────────────────────");
         println!("{}  ({} 个)", likelihood.as_str(), items.len());
         println!("────────────────────────────────────────────");
-        for (path, r, score) in items {
+        for (path, r) in items {
             let name = Path::new(path).file_name().unwrap_or_default().to_string_lossy();
-            println!("  [{score:>4.1}] {name}");
+            // 显示两套分数
+            println!("  [{:>4.1} |{:>4.1}] {}", r.score_main, r.score_sub, name);
             println!("    路径: {path}");
             let mut info = format!("    类型: {} | 有窗口: {}", r.subsystem.as_str(), r.has_window);
             if !r.window_funcs.is_empty() { info.push_str(&format!(" | {}", r.window_funcs.join(", "))); }
@@ -360,22 +352,27 @@ fn main() {
         }
     }
 
-    // 保存缓存在最后（包含排序后的所有数据）
+    // 保存缓存（包含排序后的所有数据）
     if USE_CACHE {
-        // 合并 + 排序后保存
         let mut all: Vec<CacheEntry> = final_entries;
         let existing: HashSet<String> = all.iter().map(|e| e.path.clone()).collect();
         for item in &sorted {
             if let Ok(abs) = fs::canonicalize(&item.0) {
                 let a = abs.to_string_lossy().to_string();
                 if !existing.contains(&a) {
-                    all.push(CacheEntry { path: a, mtime_secs: 0, score: item.2, result: item.1.clone() });
+                    all.push(CacheEntry {
+                        path: a, mtime_secs: 0,
+                        score_main: item.1.score_main,
+                        score_sub: item.1.score_sub,
+                        result: item.1.clone(),
+                    });
                 }
             }
         }
-        // 排序：分数降序 → 文件名升序 → 路径升序
+        // 排序：主分(降) → 副分(降) → 文件名(升) → 路径(升)
         all.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.score_main.partial_cmp(&a.score_main).unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.score_sub.partial_cmp(&a.score_sub).unwrap_or(std::cmp::Ordering::Equal))
                 .then_with(|| {
                     let fa = Path::new(&a.path).file_name().map(|s| s.to_ascii_lowercase());
                     let fb = Path::new(&b.path).file_name().map(|s| s.to_ascii_lowercase());

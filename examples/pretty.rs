@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use playscript::AnalyzeResult;
-use playscript::VersionSummary;
 
 // ═══════════════════════════════════════════════════════════════
 //  可调参数
@@ -21,21 +20,17 @@ const OUTPUT_JSON: &str = "exe-analysis.json";
 
 // ═══════════════════════════════════════════════════════════════
 
+/// 精简输出结构，字段顺序固定。
+/// - score_main（主分）：消息循环强信号
+/// - score_sub（副分）：资源/导入弱信号
 #[derive(Serialize)]
 struct PrettyEntry {
     file: String,
-    score: f64,
+    score_main: f64,
+    score_sub: f64,
     classification: String,
     subsystem: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    version: Option<VersionSummary>,
     has_window: bool,
-    has_icon: bool,
-    is_dotnet: bool,
-    is_service: bool,
-    is_stub: bool,
-    has_manifest: bool,
-    has_dialog: bool,
     path: String,
 }
 
@@ -49,7 +44,8 @@ fn cache_path() -> PathBuf {
 #[derive(serde::Deserialize)]
 struct CacheEntry {
     path: String,
-    score: f64,
+    score_main: f64,
+    score_sub: f64,
     result: AnalyzeResult,
 }
 
@@ -63,17 +59,11 @@ fn to_pretty(e: &CacheEntry) -> PrettyEntry {
         .map(|s| s.to_string_lossy()).unwrap_or_default().to_string();
     PrettyEntry {
         file,
-        score: e.score,
+        score_main: e.score_main,
+        score_sub: e.score_sub,
         classification: e.result.classification.as_str().to_string(),
         subsystem: e.result.subsystem.as_str().to_string(),
         has_window: e.result.has_window,
-        has_icon: e.result.has_icon,
-        is_dotnet: e.result.is_dotnet,
-        is_service: e.result.is_service,
-        is_stub: e.result.is_stub,
-        has_manifest: e.result.has_manifest,
-        has_dialog: e.result.has_dialog,
-        version: e.result.version.clone(),
         path: e.path.clone(),
     }
 }
