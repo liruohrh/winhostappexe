@@ -1,5 +1,5 @@
 [package]
-name = "playscript"
+name = "exe-analyzer"
 version = "0.1.0"
 edition = "2024"
 
