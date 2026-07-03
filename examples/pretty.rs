@@ -5,24 +5,14 @@
 //!
 //! 运行: cargo run --example pretty
 
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::Serialize;
 
 use playscript::AnalyzeResult;
 
-// ═══════════════════════════════════════════════════════════════
-//  可调参数
-// ═══════════════════════════════════════════════════════════════
-
-/// 输出文件名（放在缓存目录下）。
 const OUTPUT_JSON: &str = "exe-analysis.json";
 
-// ═══════════════════════════════════════════════════════════════
-
-/// 精简输出结构，字段顺序固定。
-/// - score_main（主分）：消息循环强信号
-/// - score_sub（副分）：资源/导入弱信号
 #[derive(Serialize)]
 struct PrettyEntry {
     file: String,
@@ -55,8 +45,11 @@ struct CacheData {
 }
 
 fn to_pretty(e: &CacheEntry) -> PrettyEntry {
-    let file = Path::new(&e.path).file_name()
-        .map(|s| s.to_string_lossy()).unwrap_or_default().to_string();
+    let file = Path::new(&e.path)
+        .file_name()
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_default()
+        .to_string();
     PrettyEntry {
         file,
         score_main: e.score_main,
@@ -70,27 +63,29 @@ fn to_pretty(e: &CacheEntry) -> PrettyEntry {
 
 fn main() {
     let cp = cache_path();
-    println!("playscript pretty — 精简输出 entries\n");
-    println!("缓存: {}", cp.display());
+    println!("playscript pretty\n{}\n", cp.display());
 
     let file = match fs::File::open(&cp) {
         Ok(f) => f,
         Err(_) => {
-            eprintln!("错误: 缓存不存在。请先运行 `cargo run --example find`");
+            eprintln!("错误: 缓存不存在");
             std::process::exit(1);
         }
     };
     let data: CacheData = match serde_json::from_reader(std::io::BufReader::new(file)) {
         Ok(d) => d,
-        Err(e) => { eprintln!("错误: 缓存解析失败 → {e}"); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("错误: {e}");
+            std::process::exit(1);
+        }
     };
 
-    println!("共 {} 条 entries\n", data.entries.len());
+    println!("{} 条 entries\n", data.entries.len());
 
     let arr: Vec<PrettyEntry> = data.entries.iter().map(to_pretty).collect();
     let json = serde_json::to_string_pretty(&arr).unwrap();
 
     let out = cache_path().parent().unwrap().join(OUTPUT_JSON);
     fs::write(&out, &json).unwrap();
-    println!("已写入 {} ({} KB)", out.display(), json.len() / 1024);
+    println!("写入 {} ({} KB)", out.display(), json.len() / 1024);
 }

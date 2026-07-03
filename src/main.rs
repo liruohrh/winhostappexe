@@ -27,18 +27,39 @@ fn main() {
             }
 
             let mut tags = Vec::new();
-            if r.is_dotnet { tags.push(".NET"); }
-            if r.is_service { tags.push("Service"); }
-            if r.is_stub { tags.push("Stub"); }
-            if r.has_manifest { tags.push("Manifest"); }
-            if r.has_dialog { tags.push("DialogRes"); }
-            if r.has_icon { tags.push("Icon"); }
-            if r.has_version { tags.push("VersionInfo"); }
-            if !tags.is_empty() { println!("tags: {}", tags.join(" ")); }
+            if r.is_dotnet {
+                tags.push(".NET");
+            }
+            if r.is_service {
+                tags.push("Service");
+            }
+            if r.is_stub {
+                tags.push("Stub");
+            }
+            if r.has_manifest {
+                tags.push("Manifest");
+            }
+            if r.has_dialog {
+                tags.push("DialogRes");
+            }
+            if r.has_icon {
+                tags.push("Icon");
+            }
+            if r.version.is_some() {
+                tags.push("VersionInfo");
+            }
+            if !tags.is_empty() {
+                println!("tags: {}", tags.join(" "));
+            }
+            println!("score_main: {}, score_sub: {}", r.score_main, r.score_sub);
 
             if let Some(ref ver) = r.version {
-                if let Some(ref v) = ver.original_filename { println!("  OriginalFilename: {v}"); }
-                if let Some(ref v) = ver.file_description  { println!("  FileDescription : {v}"); }
+                if let Some(ref v) = ver.original_filename {
+                    println!("  OriginalFilename: {v}");
+                }
+                if let Some(ref v) = ver.file_description {
+                    println!("  FileDescription : {v}");
+                }
             }
         }
         Err(e) => {
