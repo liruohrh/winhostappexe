@@ -1,4 +1,4 @@
-//! playscript find — 在目录树中查找 EXE，按两套分数排序输出。
+//! winhostappexe find — 在目录树中查找 EXE，按两套分数排序输出。
 //!
 //! 排序规则：主分(降) → 副分(降) → 文件名(升) → 路径(升)
 //!
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
-use playscript::{AnalyzeResult, analyze_exe};
+use winhostappexe::{AnalyzeResult, analyze_exe};
 
 // ═══════════════════════════════════════════════════════════════
 //  可调参数
@@ -88,7 +88,7 @@ struct CacheData {
 
 fn cache_path() -> PathBuf {
     let mut p = PathBuf::from(std::env::temp_dir());
-    p.push("playscript-cache");
+    p.push("winhostappexe-cache");
     let _ = fs::create_dir_all(&p);
     p.push("cache.json");
     p
@@ -196,7 +196,7 @@ fn analyze_one(
             return None;
         }
     };
-    let result = playscript::adjust_by_path(result, &abs_str);
+    let result = winhostappexe::adjust_by_path(result, &abs_str);
     entries.push(CacheEntry {
         path: abs_str,
         mtime_secs: mtime,
@@ -341,7 +341,7 @@ fn main() {
     let force_mode = args.iter().any(|a| a == "--force");
 
     if recalc_only {
-        println!("playscript find — 仅重算缓存\n{}", cache_path().display());
+        println!("winhostappexe find — 仅重算缓存\n{}", cache_path().display());
         let mut entries = load_cache_entries();
         if entries.is_empty() {
             eprintln!("错误: 缓存为空");
@@ -390,7 +390,7 @@ fn main() {
         if !cached.is_empty() {
             let paths: Vec<PathBuf> = cached.iter().map(|e| PathBuf::from(&e.path)).collect();
             println!(
-                "playscript find --force\n{}\n从缓存读取 {} 条路径，跳过目录遍历",
+                "winhostappexe find --force\n{}\n从缓存读取 {} 条路径，跳过目录遍历",
                 cache_path().display(),
                 paths.len()
             );
@@ -401,7 +401,7 @@ fn main() {
     }
 
     println!(
-        "playscript find\n{}\n线程: {}",
+        "winhostappexe find\n{}\n线程: {}",
         cache_path().display(),
         if THREADS == 0 {
             format!("{} (CPU/2)", num_cpus())

@@ -1,9 +1,9 @@
-//! playscript 库使用示例（根据《Windows EXE 文件类型分类》设计）
+//! winhostappexe 库使用示例（根据《Windows EXE 文件类型分类》设计）
 //!
 //! 运行: cargo run --example demo -- <exe_path>
 //! 不带参数时展示内置测试路径。
 
-use playscript::analyze_exe;
+use winhostappexe::analyze_exe;
 use std::env;
 use std::path::Path;
 
@@ -77,7 +77,7 @@ fn main() {
             analyze_and_print(path);
         }
     } else {
-        println!("playscript 示例 — PE 文件窗口检测与分类\n");
+        println!("winhostappexe 示例 — PE 文件窗口检测与分类\n");
         println!("用法: cargo run --example demo -- <exe_path>\n");
         println!("内置演示:\n");
 

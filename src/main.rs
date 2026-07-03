@@ -1,11 +1,11 @@
 //! CLI 入口 — 调用 lib.rs 进行分析并输出结果。
 //!
-//! 用法: playscript <exe_path>
+//! 用法: winhostappexe <exe_path>
 
 use std::env;
 use std::process;
 
-use playscript::analyze_exe;
+use winhostappexe::analyze_exe;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

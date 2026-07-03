@@ -1,4 +1,4 @@
-//! playscript pretty — 从缓存读取 entries，精简后输出 JSON 数组。
+//! winhostappexe pretty — 从缓存读取 entries，精简后输出 JSON 数组。
 //!
 //! 不重新排序，仅保留必要字段，固定字段顺序。
 //! 输出到缓存目录下的 exe-analysis.json。
@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use playscript::AnalyzeResult;
+use winhostappexe::AnalyzeResult;
 
 const OUTPUT_JSON: &str = "exe-analysis.json";
 
@@ -26,7 +26,7 @@ struct PrettyEntry {
 
 fn cache_path() -> PathBuf {
     let mut p = PathBuf::from(std::env::temp_dir());
-    p.push("playscript-cache");
+    p.push("winhostappexe-cache");
     p.push("cache.json");
     p
 }
@@ -63,7 +63,7 @@ fn to_pretty(e: &CacheEntry) -> PrettyEntry {
 
 fn main() {
     let cp = cache_path();
-    println!("playscript pretty\n{}\n", cp.display());
+    println!("winhostappexe pretty\n{}\n", cp.display());
 
     let file = match fs::File::open(&cp) {
         Ok(f) => f,
