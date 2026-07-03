@@ -196,6 +196,7 @@ fn analyze_one(
             return None;
         }
     };
+    let result = playscript::adjust_by_path(result, &abs_str);
     entries.push(CacheEntry {
         path: abs_str,
         mtime_secs: mtime,
